@@ -16,6 +16,11 @@ from typing import Optional
 from .scheduler import AdaptiveScheduler
 from .detector import EventDetector, Event
 from .state import create_state_manager, StateManager
+import sys
+import os
+
+# Add handlers directory to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'handlers'))
 
 
 class AgentTickDaemon:
@@ -44,11 +49,31 @@ class AgentTickDaemon:
         self.detector = EventDetector(config, agent_name)
         self.state_manager = create_state_manager(config, agent_name)
         
+        # Handlers
+        self.handlers = []
+        self._load_handlers()
+        
         # State
         self.running = False
         self.tick_count = 0
         self.tick_task: Optional[asyncio.Task] = None
         
+    def _load_handlers(self):
+        """Load configured handlers."""
+        handlers_config = self.config.get('handlers', [])
+        
+        for handler_config in handlers_config:
+            handler_type = handler_config.get('type')
+            
+            if handler_type == 'freeze_detector':
+                try:
+                    from freeze_detector import FreezeDetector
+                    handler = FreezeDetector(handler_config.get('config', {}))
+                    self.handlers.append(handler)
+                    print(f"[AgentTick:{self.agent_name}] Loaded handler: FreezeDetector")
+                except Exception as e:
+                    print(f"[AgentTick:{self.agent_name}] Failed to load FreezeDetector: {e}")
+    
     async def start(self):
         """Start the daemon."""
         print(f"[AgentTick:{self.agent_name}] Starting daemon...")
@@ -133,6 +158,14 @@ class AgentTickDaemon:
                 
                 # Save to state
                 await self.state_manager.save_event(event)
+                
+                # Pass to handlers
+                event_dict = event.to_dict()
+                for handler in self.handlers:
+                    try:
+                        handler.handle_event(event_dict)
+                    except Exception as e:
+                        print(f"[Tick:{self.agent_name}] Handler error: {e}")
         
         # Update daemon state
         await self._update_daemon_state()

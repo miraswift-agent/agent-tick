@@ -22,5 +22,15 @@
       "enabled": true,
       "interval": 5000
     }
-  }
+  },
+  "handlers": [
+    {
+      "type": "freeze_detector",
+      "config": {
+        "freeze_threshold_ms": 1800000,
+        "alert_method": "cron_wake",
+        "work_hours": [6, 23]
+      }
+    }
+  ]
 }
