@@ -9,5 +9,6 @@ __version__ = '2.0.0-alpha'
 __author__ = 'Mira Swift'
 
 from .scheduler import AdaptiveScheduler
+from .detector import EventDetector, Event
 
-__all__ = ['AdaptiveScheduler']
+__all__ = ['AdaptiveScheduler', 'EventDetector', 'Event']
