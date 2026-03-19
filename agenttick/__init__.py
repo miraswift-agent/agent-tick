@@ -10,5 +10,14 @@ __author__ = 'Mira Swift'
 
 from .scheduler import AdaptiveScheduler
 from .detector import EventDetector, Event
+from .state import StateManager, create_state_manager
+from .daemon import AgentTickDaemon
 
-__all__ = ['AdaptiveScheduler', 'EventDetector', 'Event']
+__all__ = [
+    'AdaptiveScheduler',
+    'EventDetector',
+    'Event',
+    'StateManager',
+    'create_state_manager',
+    'AgentTickDaemon'
+]

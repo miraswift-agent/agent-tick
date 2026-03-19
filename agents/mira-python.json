@@ -1,0 +1,26 @@
+{
+  "agentName": "mira",
+  "workspaceRoot": "/home/mira/.openclaw/workspace",
+  "stateBackend": "sqlite",
+  "statePath": "state/mira-python.db",
+  "tickIntervals": {
+    "active_interval_ms": 1000,
+    "idle_interval_ms": 30000,
+    "sleep_interval_ms": 300000,
+    "sleep_hours": [2, 6],
+    "ultra_quiet_threshold_ms": 1800000,
+    "ultra_quiet_max_ms": 900000,
+    "system_load_threshold": 70
+  },
+  "watchPaths": [
+    "/home/mira/.openclaw/workspace/memory",
+    "/home/mira/.openclaw/workspace/journal",
+    "/home/mira/.openclaw/workspace/projects"
+  ],
+  "monitoring": {
+    "git": {
+      "enabled": true,
+      "interval": 5000
+    }
+  }
+}
