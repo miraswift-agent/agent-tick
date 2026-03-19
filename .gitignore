@@ -1,5 +1,29 @@
-node_modules/
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# State
+state/*.db
+state/*.db-shm
+state/*.db-wal
 state/*.json
+
+# Logs
 *.log
-state/*.json
-*.log
+tick-python.log
+tick.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
