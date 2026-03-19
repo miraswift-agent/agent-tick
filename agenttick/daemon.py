@@ -70,7 +70,8 @@ class AgentTickDaemon:
         self.running = True
         self.tick_task = asyncio.create_task(self._tick_loop())
         
-        print(f"[AgentTick:{self.agent_name}] Daemon started (PID: {asyncio.get_event_loop().pid})")
+        import os
+        print(f"[AgentTick:{self.agent_name}] Daemon started (PID: {os.getpid()})")
         
         # Wait for shutdown
         await self.tick_task
