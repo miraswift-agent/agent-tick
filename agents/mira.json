@@ -1,0 +1,38 @@
+{
+  "agentName": "mira",
+  "workspaceRoot": "/home/mira/.openclaw/workspace",
+  "tickIntervals": {
+    "active": 1000,
+    "idle": 30000,
+    "sleep": 300000
+  },
+  "watchPaths": [
+    "/home/mira/.openclaw/workspace/memory",
+    "/home/mira/.openclaw/workspace/journal",
+    "/home/mira/.openclaw/workspace/projects"
+  ],
+  "monitoring": {
+    "git": {
+      "enabled": true,
+      "interval": 5000
+    },
+    "email": {
+      "enabled": false,
+      "interval": 60000
+    }
+  },
+  "publishing": {
+    "blog": {
+      "enabled": true,
+      "maxPerWeek": 2,
+      "minIntervalDays": 3,
+      "coolingPeriodHours": 24
+    },
+    "xThread": {
+      "enabled": true,
+      "maxPerWeek": 5,
+      "minIntervalDays": 1
+    }
+  },
+  "healthCheckPort": 41114
+}
