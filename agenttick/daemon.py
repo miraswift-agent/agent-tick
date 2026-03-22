@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Optional
 
 from .config import AgentConfig, load_and_validate_config
+from .notifiers import NotifierRegistry
+from .pidguard import PIDGuard
 from .scheduler import AdaptiveScheduler
 from .detector import EventDetector, Event
 from .state import create_state_manager, StateManager
@@ -33,18 +35,25 @@ class AgentTickDaemon:
     - Adaptive scheduler (1s/30s/5min intervals)
     - Event detection (file watch, git, custom)
     - State persistence (SQLite or JSON)
+    - Pluggable notifiers (webhook, shell, Telegram)
+    - Single-instance guard (PID file)
     """
 
-    def __init__(self, config: dict, agent_name: str):
+    def __init__(self, config: dict, agent_name: str,
+                 notifier_registry: Optional[NotifierRegistry] = None):
         """
         Initialize daemon with agent config.
 
         Args:
             config: Agent configuration dict (already validated)
             agent_name: Name of the agent
+            notifier_registry: Optional pre-built notifier registry
         """
         self.config = config
         self.agent_name = agent_name
+
+        # Notifier registry
+        self.notifier_registry = notifier_registry or NotifierRegistry()
 
         # Components
         self.scheduler = AdaptiveScheduler(config.get("tickIntervals", {}))
@@ -71,7 +80,10 @@ class AgentTickDaemon:
                 try:
                     from freeze_detector import FreezeDetector
 
-                    handler = FreezeDetector(handler_config.get("config", {}))
+                    handler = FreezeDetector(
+                        handler_config.get("config", {}),
+                        notifier_registry=self.notifier_registry,
+                    )
                     self.handlers.append(handler)
                     print(
                         f"[AgentTick:{self.agent_name}] Loaded handler: FreezeDetector"
@@ -90,6 +102,11 @@ class AgentTickDaemon:
             f"[AgentTick:{self.agent_name}] "
             f"Watch paths: {len(self.config.get('watchPaths', []))}"
         )
+        if self.notifier_registry.names():
+            print(
+                f"[AgentTick:{self.agent_name}] "
+                f"Notifiers: {', '.join(self.notifier_registry.names())}"
+            )
 
         # Initialize components
         await self.detector.initialize()
@@ -241,7 +258,35 @@ async def main():
     parser.add_argument(
         "--config-dir", default="agents", help="Directory containing agent configs"
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force start even if another instance is running",
+    )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="Check if an instance is running and exit",
+    )
+    parser.add_argument(
+        "--stop",
+        action="store_true",
+        help="Stop a running instance and exit",
+    )
     args = parser.parse_args()
+
+    # Handle status/stop commands
+    if args.status:
+        pid = PIDGuard.status(args.agent)
+        if pid:
+            print(f"agent-tick:{args.agent} is running (PID: {pid})")
+        else:
+            print(f"agent-tick:{args.agent} is not running")
+        sys.exit(0 if pid else 1)
+
+    if args.stop:
+        success = PIDGuard.stop(args.agent)
+        sys.exit(0 if success else 1)
 
     # Load agent config
     config_path = Path(args.config_dir) / f"{args.agent}.json"
@@ -266,8 +311,17 @@ async def main():
         print("Hint: Check the Configuration Reference in README.md")
         sys.exit(1)
 
+    # Single-instance guard
+    guard = PIDGuard(args.agent)
+    if not guard.acquire(force=args.force):
+        sys.exit(1)
+
+    # Build notifier registry from config
+    notifiers_config = raw_config.get("notifiers", [])
+    notifier_registry = NotifierRegistry.from_config(notifiers_config)
+
     # Create and start daemon
-    daemon = AgentTickDaemon(config, args.agent)
+    daemon = AgentTickDaemon(config, args.agent, notifier_registry=notifier_registry)
 
     try:
         await daemon.start()
@@ -277,6 +331,8 @@ async def main():
         print(f"Fatal error: {e}")
         traceback.print_exc()
         sys.exit(1)
+    finally:
+        guard.release()
 
 
 if __name__ == "__main__":
