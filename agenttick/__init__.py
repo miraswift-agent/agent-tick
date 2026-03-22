@@ -12,6 +12,8 @@ from .config import AgentConfig, load_and_validate_config, DEFAULT_IGNORE_PATTER
 from .scheduler import AdaptiveScheduler
 from .detector import EventDetector, Event
 from .state import StateManager, create_state_manager
+from .notifiers import Notifier, NotifierRegistry
+from .pidguard import PIDGuard
 from .daemon import AgentTickDaemon
 
 __all__ = [
@@ -23,5 +25,8 @@ __all__ = [
     "Event",
     "StateManager",
     "create_state_manager",
+    "Notifier",
+    "NotifierRegistry",
+    "PIDGuard",
     "AgentTickDaemon",
 ]
