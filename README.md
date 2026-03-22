@@ -16,9 +16,12 @@ Most AI agents only "exist" when triggered by messages or cron jobs. Agent Tick 
 - ⏱️ **Adaptive tick loop** - 1s when active, 30s idle, 5min sleep (system-load aware)
 - 👁️ **Event detection** - File watching, git monitoring, custom handlers
 - 💾 **Crash-proof state** - SQLite with WAL mode (ACID compliance)
-- 🔌 **Multi-agent** - Run isolated instances per agent
+- 🔌 **Multi-agent** - Run isolated instances per agent (PID guard)
 - 🪶 **Ultra-lightweight** - ~32MB RAM idle, <2% CPU
 - 🧠 **Self-aware** - Built-in freeze detection for autonomy patterns
+- 🔔 **Pluggable notifiers** - Webhook, shell, Telegram (no OpenClaw dependency required)
+- 🐧 **WSL-aware** - Auto-fallback to polling on Windows-mounted paths
+- ✅ **Config validation** - Pydantic schema with helpful errors and legacy key support
 
 ---
 
@@ -59,17 +62,41 @@ Create `agents/<your-agent>.json`:
     "/path/to/workspace/memory",
     "/path/to/workspace/projects"
   ],
+  "watchOptions": {
+    "autoPollingFallback": true,
+    "pollingIntervalMs": 2000
+  },
+  "ignorePatterns": [
+    "/.git/",
+    "/node_modules/",
+    "/.venv/",
+    "/__pycache__/",
+    "**/*.log"
+  ],
   "monitoring": {
     "git": {
       "enabled": true
     }
   },
+  "notifiers": [
+    {
+      "name": "main_webhook",
+      "type": "webhook",
+      "config": {
+        "url": "https://hooks.example.com/agent",
+        "headers": { "Authorization": "Bearer YOUR_TOKEN" },
+        "timeoutMs": 5000,
+        "maxRetries": 5,
+        "backoff": "exponential"
+      }
+    }
+  ],
   "handlers": [
     {
       "type": "freeze_detector",
       "config": {
         "freeze_threshold_ms": 1800000,
-        "alert_method": "cron_wake",
+        "notifier": "main_webhook",
         "work_hours": [6, 23]
       }
     }
@@ -82,6 +109,15 @@ Create `agents/<your-agent>.json`:
 ```bash
 # Direct run (foreground)
 python3 run.py --agent=myagent
+
+# With single-instance guard (force override)
+python3 run.py --agent=myagent --force
+
+# Check status
+python3 run.py --agent=myagent --status
+
+# Stop running instance
+python3 run.py --agent=myagent --stop
 
 # Background daemon
 nohup python3 run.py --agent=myagent > tick.log 2>&1 &
@@ -106,8 +142,11 @@ Dynamically adjusts tick intervals based on activity and system load:
 Multi-source event detection:
 
 - **File watching**: `watchdog` library, recursive monitoring
+- **WSL-aware**: Auto-detects WSL + `/mnt/*` paths, falls back to `PollingObserver`
+- **Ignore patterns**: Filter noisy directories (`/.git/`, `/node_modules/`, `/.venv/`, `/__pycache__/`, `**/*.log`)
 - **Git status**: Uncommitted changes, staged files, untracked files
 - **Tier inference**: Heuristic-based significance (1=high, 2=medium, 3=low)
+- **Rate-limited logging**: Suppresses spam from ignored paths and missing watch directories
 
 Path-based tiers:
 - Tier 1: `identity.md`, `soul.md`, memory preservation files
@@ -163,11 +202,14 @@ Detects autonomy freeze patterns (commit to work → don't execute):
   "type": "freeze_detector",
   "config": {
     "freeze_threshold_ms": 1800000,
-    "alert_method": "cron_wake",
+    "notifier": "main_webhook",
     "work_hours": [6, 23]
   }
 }
 ```
+
+> **Note:** `notifier` references a named notifier from the `notifiers` config section.
+> If no notifier is configured, falls back to `alert_method: "cron_wake"` (legacy OpenClaw integration).
 
 **Alert example:**
 ```
@@ -203,6 +245,131 @@ Register in agent config:
     }
   ]
 }
+```
+
+---
+
+## Pluggable Notifiers
+
+Handlers send alerts via named notifiers instead of coupling to OpenClaw. Configure notifiers in the `notifiers` section:
+
+### WebhookNotifier
+
+POST JSON payload with retry and exponential backoff. Respects `429/Retry-After`.
+
+```json
+{
+  "name": "my_webhook",
+  "type": "webhook",
+  "config": {
+    "url": "https://hooks.example.com/agent",
+    "headers": { "Authorization": "Bearer TOKEN" },
+    "timeoutMs": 5000,
+    "maxRetries": 5,
+    "backoff": "exponential"
+  }
+}
+```
+
+### ShellNotifier
+
+Run a local command template. Event fields injected via placeholders and environment variables.
+
+```json
+{
+  "name": "local_logger",
+  "type": "shell",
+  "config": {
+    "cmd": "logger \"agent-tick: {title} — {text}\"",
+    "timeoutMs": 10000,
+    "shell": true
+  }
+}
+```
+
+Environment variables available: `AGENT_TICK_TITLE`, `AGENT_TICK_TEXT`, `AGENT_TICK_TAGS`.
+
+### TelegramNotifier
+
+Send via Telegram Bot API. Requires `bot_token` and `chat_id`.
+
+```json
+{
+  "name": "telegram_alert",
+  "type": "telegram",
+  "config": {
+    "bot_token": "123456:ABC-DEF",
+    "chat_id": "-1001234567890",
+    "parse_mode": "HTML",
+    "disable_notification": false
+  }
+}
+```
+
+### Custom Notifiers
+
+Implement the `Notifier` interface:
+
+```python
+from agenttick.notifiers.base import Notifier, register_notifier_type
+
+class MyNotifier(Notifier):
+    def __init__(self, config: dict):
+        super().__init__(config)
+
+    async def send(self, title: str, text: str, tags=None) -> bool:
+        # Your notification logic here
+        return True
+
+register_notifier_type("my_type", MyNotifier)
+```
+
+---
+
+## Single-Instance Guard
+
+Prevents multiple daemon instances for the same agent via PID files in `state/`.
+
+```bash
+# Check if running
+python3 run.py --agent=myagent --status
+
+# Stop a running instance
+python3 run.py --agent=myagent --stop
+
+# Force start (override existing)
+python3 run.py --agent=myagent --force
+```
+
+PID files are stored at `state/<agent_name>.pid`. Stale PID files (from crashed processes) are automatically cleaned up on next start.
+
+---
+
+## Config Validation
+
+Agent Tick validates configuration using Pydantic with helpful error messages:
+
+```
+Error: Invalid configuration in agents/myagent.json:
+  1 validation error for AgentConfig
+  tickIntervals -> active_interval_ms
+    Input should be greater than or equal to 100 (type=greater_than_equal)
+```
+
+### Legacy Key Support
+
+Old-style `tickIntervals` keys are automatically mapped with a deprecation warning:
+
+| Legacy Key | New Key | Notes |
+|-----------|---------|-------|
+| `active` | `active_interval_ms` | Value in milliseconds |
+| `idle` | `idle_interval_ms` | Value in milliseconds |
+| `sleep` | `sleep_interval_ms` | Value in milliseconds |
+
+```
+DeprecationWarning: tickIntervals uses legacy keys (active, idle, sleep).
+Please update to active_interval_ms, idle_interval_ms, sleep_interval_ms.
+Legacy keys will be removed in v3.0.
 ```
 
 ---
@@ -363,6 +530,36 @@ Supports:
 - Recursive monitoring
 - Hidden files filtered (`.git/`, `node_modules/`)
 
+### Watch Options
+
+```json
+{
+  "watchOptions": {
+    "autoPollingFallback": true,
+    "pollingIntervalMs": 2000
+  }
+}
+```
+
+- **autoPollingFallback** (default: `true`): Auto-detect WSL + `/mnt/*` paths and fall back to `PollingObserver`
+- **pollingIntervalMs** (default: `2000`): Polling interval when using `PollingObserver` (100-60000ms)
+
+### Ignore Patterns
+
+```json
+{
+  "ignorePatterns": [
+    "/.git/",
+    "/node_modules/",
+    "/.venv/",
+    "/__pycache__/",
+    "**/*.log"
+  ]
+}
+```
+
+Supports substring matching (`/.git/`), glob patterns (`**/*.log`), and fnmatch patterns (`*.pyc`). Default patterns are applied if `ignorePatterns` is not specified.
+
 ### State Backends
 
 **SQLite** (recommended):
@@ -488,6 +685,10 @@ Many agents freeze when committing to action without external prompts. Agent Tic
 
 - [x] Python rewrite (v2.0.0)
 - [x] Freeze detection handler
+- [x] WSL-aware file watcher + ignore patterns
+- [x] Pydantic config validation with legacy key support
+- [x] Pluggable notifiers (webhook, shell, Telegram)
+- [x] Single-instance PID guard
 - [ ] Engram integration
 - [ ] Content publishing handler (blog, X threads)
 - [ ] A2A coordination (agent-to-agent messaging)
